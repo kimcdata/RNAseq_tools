@@ -1,0 +1,76 @@
+############### Unzip fastq.gz files #####################
+
+for i in `find $PWD | grep 'R1\|R2' | sort`; do sudo gzip -d -k $i; done
+
+######################## concatenate FASTQ files if they are split over lanes ##########################
+### DEPENDING ON THE FILESYSTEM YOU ARE USING, THIS MAY NEED TO BE EXECUTED FROM YOUR LOCAL USER AREA (E.G. CIFS HAS CAUSED PROBLEMS)
+for f in *; do echo -e "cat $PWD/$f/*R1*.fastq > $PWD/$f.R1.fastq\ncat $PWD/$f/*R2*.fastq > $PWD/$f.R2.fastq" >> concatenate_FASTQ; done
+chmod +x concatenate_FASTQ
+./concatenate_FASTQ
+
+####################### FASTQC ###########################
+
+find $PWD | grep 'R1*.fastq$\|R2*.fastq$' > files.for.fastqc
+
+mkdir fastqc_results
+fastqc files.for.fastqc --outdir=fastqc_results
+
+#doesn't work on mapped bam files
+#for f in `cat bam.files.txt`; do fastqc -f bam_mapped $f --outdir=fastqc_bam_mapped & done
+
+####################### Run the STAR aligner, filenames must end with either R1.fastq or R2.fastq ###################
+
+ls -p | grep -v / | grep fastq > files
+sed s/.R[0-9].fastq//g files | uniq > files.u
+for f in `cat files.u`; do ./STAR --genomeDir reference_genome/ --readFilesIn $f.R1.fastq $f.R2.fastq --runThreadN 16 --outFileNamePrefix $f.; done
+
+
+################ CONVERT GFF FORMAT TO GTF FORMAT ########################
+
+gffread [gff file] -T -o [new gtf file]
+
+
+########################## RUNNING STAR ALIGNER AGAINST REFERENCE GENOME ############################
+
+ls | grep fastq > files
+sed s/.R[0-9].*fastq//g files | uniq > files.u
+
+# reference genome
+for f in `cat files.u`; do STAR --limitBAMsortRAM 20000000000 --outSAMtype BAM SortedByCoordinate --genomeDir [genome directory] --readFilesIn $f.R1.fastq $f.R2.fastq --runThreadN 4 --outFileNamePrefix $f.ref & done
+
+######################## RUNNING BOWTIE2 ALIGNER AGAINST ILLUMINA IGENOMES REFERENCE GENOME, PIPING OUTPUT TO SAMTOOLS TO CONVERT TO BAM FORMAT ###########################
+
+ls *.fastq > fastq.files.txt
+sed s/.R[0-9].fastq//g fastq.files.txt | uniq > sample_ids_for_bowtie2.txt
+for f in `cat sample_ids_for_bowtie2.txt`; do bowtie2 -p 2 -x ~/analysis/illumina_igenomes/Homo_sapiens/NCBI/GRCh38/Sequence/Bowtie2Index/genome -1 $f.R1.fastq -2 $f.R2.fastq | samtools view -bS - > $f.BAM & done
+
+for f in *.BAM; do samtools sort -@ 4 -m 4G $f -o $f.sorted & done
+for f in *.sorted.bam; do samtools index $f & done
+
+
+######################## RUNNING BOWTIE2 ALIGNER AGAINST ILLUMINA IGENOMES REFERENCE GENOME, SAVING ONLY THE MAPPING STATISTICS FROM STDERR ###########################
+
+for f in `cat sample_ids_for_bowtie2.txt`; do bowtie2 -p 2 -x ~/analysis/illumina_igenomes/Homo_sapiens/NCBI/GRCh38/Sequence/Bowtie2Index/genome -1 $f.R1.fastq -2 $f.R2.fastq > /dev/null 2> $f.bowtie.mapping.statistics.txt & done
+
+########################### CONVERT SAM FILES TO BAM FILES #####################################
+
+ls E[0-9]*.sam > sam.files.ecoli
+ls S[0-9]*.sam > sam.files.saureus
+for f in `cat sam.files.ecoli`; do samtools view -bS $f -o $f.bam & done
+for f in `cat sam.files.saureus`; do samtools view -bS $f -o $f.bam & done
+
+########################### PYTHON HT-SEQ-COUNT COMMANDS TO SUMMARISE COUNTS PER GENE ######################
+########################### GTF FILE IS FROM NCBI GFF FORMAT - FROM ILLUMINA IGENOMES #####################
+
+
+for f in `cat bam.files.txt`; do htseq-count -f bam -s no -t exon -i gene_id -r pos $f ~/analysis/illumina_igenomes/Homo_sapiens/NCBI/GRCh38/Annotation/Genes/genes.gtf > $f.COUNT.txt  & done
+
+####################### FIX BROKEN SEMI-COLONS, COMMAS  ############################
+
+for f in `ls *.COUNT.txt`; do sed -i 's/%3B/;/g' $f; done
+for f in `ls *.COUNT.txt`; do sed -i 's/%2C/,/g' $f; done
+
+######################### TARBALLS ################################
+
+ls -1 | grep .*COUNT.txt | xargs tar -cvzf raw.counts.tar.gz
+

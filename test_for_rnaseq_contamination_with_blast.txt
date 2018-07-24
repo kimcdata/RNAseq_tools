@@ -1,0 +1,28 @@
+######## SUBSET A FASTQ DATASET - RANDOMLY SELECT 10% OF READS USING seqtk #########
+
+seqtk sample -s100 read1.fastq 1000 > read1_10pc.fastq
+
+seqtk sample -s100 Sample_2-PN241_p5.R1.fastq 0.01 > Sample_2-PN241_p5.R1.1pc.fastq
+
+######### CONVERT FASTQ TO FASTA ##########
+
+seqtk seq -a read1.fastq > read1.fast
+
+seqtk seq -a Sample_2-PN241_p5.R1.1pc.fastq > Sample_2-PN241_p5.R1.1pc.fasta
+
+########### BLASTN AGAINST NT (non-redundant nucleotides) DATABASE, TABULAR FORMAT OUTPUT, 1 HIT PER ENTRY IN FASTA FILE ##############
+
+blastn -db ~/blastdb/nt/nt -query Sample_2-PN241_p5.R1.0.001sample.fasta -out testblast.out -max_target_seqs 1 -outfmt 6 -num_threads 24
+
+########### BLASTN AGAINST NT (non-redundant nucleotides) DATABASE, TABULAR FORMAT OUTPUT WITH SPECIES INFORMATION, 1 HIT PER ENTRY IN FASTA FILE ##############
+
+# blastn -db ~/blastdb/nt/nt -query Sample_2-PN241_p5.R1.0.001sample.fasta -out testblast.out -max_target_seqs 1 -outfmt '6 evalue staxids sscinames' -num_threads 24
+
+blastn -db nt \
+-query Sample_2-PN241_p5.R1.1pc.fasta \
+-out testblast.out \
+-max_target_seqs 1 \
+-perc_identity 100 \
+-outfmt  '6 qseqid sseqid pident evalue staxids ssciname scomnames sskingdoms stitle' \
+-num_threads 32
+

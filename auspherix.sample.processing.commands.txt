@@ -1,0 +1,63 @@
+############ CONVERT GFF FORMAT TO GTF FORMAT
+
+gffread [gff file] -T -o [new gtf file]
+
+############### FASTQC quality control reports #####################
+
+for i in `find $PWD | grep 'R1\|R2' | sort`; do gzip -d -k $i; done
+
+find $PWD | grep 'R1*.fastq$\|R2*.fastq$' > files.for.fastqc
+
+fastqc files.for.fastqc --outdir=fastqc_results
+
+
+############## COMBINING SPLIT READ FILES FOR THE SAME SAMPLES THAT HAVE BEEN SEQUENCED OVER MULTIPLE LANES ####################
+############## THIS CODE WRITES A NEW FILES CONTAINING COMMANDS TO CONCATENATE THE FILES, MAKE IT EXECUTABLE WITH `chmod +x RNAseq_file_processing_for_STAR.txt`##############
+
+
+for f in *; do echo -e "cat $f/*R1*.fastq > $f.R1.fastq\ncat $f/*R2*.fastq > $f.R2.fastq" >> RNAseq_file_processing_for_STAR.txt; done
+
+
+########################## RUNNING STAR ALIGNER AGAINST REFERENCE GENOME, HG38, UCSC ############################
+
+ls | grep fastq > files
+sed s/.R[0-9].*fastq//g files | uniq > files.u
+cat files.u | grep E > files.u.ecoli
+cat files.u | grep S[0-9] > files.u.saureus
+
+# reference genome
+for f in `cat files.u.ecoli`; do STAR --limitBAMsortRAM 20000000000 --outSAMtype BAM SortedByCoordinate --genomeDir ~/omics-analytics/auspherix-rnaseq/reference_genome_ecoli --readFilesIn $f.R1.fastq $f.R2.fastq --runThreadN 4 --outFileNamePrefix $f.ref & done
+
+# strain genome
+for f in `cat files.u.ecoli`; do STAR --limitBAMsortRAM 20000000000 --outSAMtype BAM SortedByCoordinate --genomeDir ~/omics-analytics/auspherix-rnaseq/strain_genome_ecoli --readFilesIn $f.R1.fastq $f.R2.fastq --runThreadN 4 --outFileNamePrefix $f.strain & done
+
+
+#reference genome
+for f in `cat files.u.saureus`; do STAR --limitBAMsortRAM 20000000000 --outSAMtype BAM SortedByCoordinate --genomeDir ~/omics-analytics/auspherix-rnaseq/reference_genome_saureus --readFilesIn $f.R1.fastq $f.R2.fastq --runThreadN 4 --outFileNamePrefix $f.ref. & done
+
+#strain genome
+for f in `cat files.u.saureus`; do STAR --limitBAMsortRAM 20000000000 --outSAMtype BAM SortedByCoordinate --genomeDir ~/omics-analytics/auspherix-rnaseq/strain_genome_saureus --readFilesIn $f.R1.fastq $f.R2.fastq --runThreadN 4 --outFileNamePrefix $f.strain. & done
+
+########################### CONVERT SAM FILES TO BAM FILES #####################################
+
+
+ls E[0-9]*.sam > sam.files.ecoli
+ls S[0-9]*.sam > sam.files.saureus
+for f in `cat sam.files.ecoli`; do samtools view -bS $f -o $f.bam & done
+for f in `cat sam.files.saureus`; do samtools view -bS $f -o $f.bam & done
+
+########################### PYTHON HT-SEQ-COUNT COMMANDS TO SUMMARISE COUNTS PER GENE ######################
+
+for f in `cat bam.files.ecoli`; do htseq-count -f bam -s no -t CDS -i Name --additional-attr product gene Note -r pos $f /home/spectres/omics-analytics/auspherix-rnaseq/reference_genome_ecoli/e.coli.S88/GCF_000026285.1_ASM2628v1_genomic.gff > $f.COUNT.txt  & done
+
+for f in `cat bam.files.saureus`; do htseq-count -f bam -s no -t CDS -i Name --additional-attr product gene Note -r pos $f /home/spectres/omics-analytics/auspherix-rnaseq/reference_genome_saureus/s.aureus.NCTC.8325/GCF_000013425.1_ASM1342v1_genomic.gff > $f.COUNT.txt  & done
+
+####################### FIX BROKEN SEMI-COLONS, COMMAS  ############################
+
+for f in `ls *.COUNT.txt`; do sed -i 's/%3B/;/g' $f; done
+for f in `ls *.COUNT.txt`; do sed -i 's/%2C/,/g' $f; done
+
+######################### TARBALLS ################################
+
+ls -1 | grep S[0-9].*COUNT.txt | xargs tar -cvzf s.aureus.raw.counts.tar.gz
+ls -1 | grep E[0-9].*COUNT.txt | xargs tar -cvzf e.coli.raw.counts.tar.gz

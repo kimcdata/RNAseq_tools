@@ -1,0 +1,24 @@
+# First run for AHollander RNAseq data on MSCs
+# metaphlan analysis to find matching genomes and quantify the number of reads
+
+# create and activate conda environment for python 2.7
+
+conda create -n python27 python=2.7
+source activate python27
+conda install metaphlan2
+
+
+# select a subset of reads to analyse using seqtk (10%)
+
+seqtk sample -s100 ../Sample_2-PN241_p5.R1.fastq 0.1 > Sample_2_10pc_reads.R1.fq
+seqtk sample -s100 ../Sample_2-PN241_p5.R2.fastq 0.1 > Sample_2_10pc_reads.R2.fq
+
+# metaphlan analysis on the subset of reads
+
+metaphlan2.py \
+Sample_2_10pc_reads.R1.fq,\
+Sample_2_10pc_reads.R2.fq \
+--input_type multifastq \
+-t rel_ab_w_read_stats \
+--bowtie2out Sample2.bowtie2out.txt \
+> sample2.metaphlan.test.txt
